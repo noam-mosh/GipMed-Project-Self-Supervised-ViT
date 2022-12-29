@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="0301bea9-367a-497f-9dfa-a3d1abb97e94" name="GipMed-Project" url="http://132.68.39.112">
+        <fileTransfer host="132.68.39.112" port="22" rootFolder="/home/noam.moshe/Self-Supervised-ViT" accessType="SFTP">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+          <option name="port" value="22" />
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>

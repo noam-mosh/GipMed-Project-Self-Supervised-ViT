@@ -1,0 +1,65 @@
+import openslide
+import os
+import cv2 as cv
+
+dict = {
+    'p1': 'TCGA-OL-A66H-01Z-00-DX1.E54AF3FA-E59E-404C-BB83-A6FC6FC9B312.svs',
+    'p2': 'TCGA-OL-A66O-01Z-00-DX1.5F1E4C60-5CE8-41B4-A94D-4AA80D9253F9.svs',
+    'p3': 'TCGA-OL-A66N-01Z-00-DX1.ABDA3014-7B3A-4D48-A415-CB9608491ECB.svs',
+    'n1': 'TCGA-OL-A6VO-01Z-00-DX1.291D54D6-EBAF-4622-BD42-97AA5997F014.svs',
+    'n2': 'TCGA-OL-A66P-01Z-00-DX1.5ADD0D6D-37C6-4BC9-8C2B-64DB18BE99B3.svs',
+    'n3': 'TCGA-A8-A07R-01Z-00-DX1.D716752E-86AF-468B-A905-A7894B978F22.svs'
+}
+
+# import PIL.Image
+# img = openslide.OpenSlide(image_name)
+# width, height = img.level_dimensions[0]
+#
+# increment_x = int(ceil(width / window_size))
+# increment_y = int(ceil(height / window_size))
+#
+# print("converting", image_name, "with width", width, "and height", height)
+#
+# for incre_x in range(increment_x):  # have to read the image in patches since it doesn't let me do it for larger things
+#     for incre_y in range(increment_y):
+#
+#         begin_x = window_size * incre_x
+#         end_x = min(width, begin_x + window_size)
+#         begin_y = window_size * incre_y
+#         end_y = min(height, begin_y + window_size)
+#         patch_width = end_x - begin_x
+#         patch_height = end_y - begin_y
+#
+#         patch = img.read_region((begin_x, begin_y), 0, (patch_width, patch_height))
+#         patch.load()
+#         patch_rgb = Image.new("RGB", patch.size, (255, 255, 255))
+#         patch_rgb.paste(patch, mask=patch.split()[3])
+#
+#         # compress the image
+#         patch_rgb = patch_rgb.resize((int(patch_rgb.size[0] / compression_factor), int(patch_rgb.size[1] / compression_factor)), Image.ANTIALIAS)
+#
+#         # save the image
+#         output_subfolder = join(output_path, image_name.split('/')[-1][:-4])
+#         if not os.path.exists(output_subfolder):
+#             os.makedirs(output_subfolder)
+#         output_image_name = join(output_subfolder, image_name.split('/')[-1][:-4] + '_' + str(incre_x) + '_' + str(incre_y) + '.jpg')
+#         patch_rgb.save(output_image_name)
+
+def generate_patches(slidepath, slidename, annotpath, annotname, patch_size):
+    slide_path = os.path.join(slidepath, slidename)
+    anno_path = os.path.join(annotpath, annotname))
+    Slide = openslide.OpenSlide(slide_path)
+    annolist = parse_xml(anno_path)
+
+    for i in range(len(annolist)):
+        coords = np.array(annolist[i])
+    x, y, w, h = cv.boundingRect(coords)
+
+    for k in range(30):
+        offsetx = random.randrange(-1000, 100)
+    offsety = random.randrange(-1000, 100)
+    spointx, spointy = x + offsetx, y + offsety
+    # top left coords of patch bounding box in mlevel
+    spointx0, spointy0 = spointx * factor, spointy * factor  # multipled by factor to get the original co-ordinates as in WSI and not the as per the level
+    patchimg = Slide.read_region((spointx0, spointy0), mlevel, (patch_size, patch_size))
+    cv.imwrite(f"path to directory/{slidename}patches/patch_{str(i)}{str(k)}.jpg", np.array(patchimg))
