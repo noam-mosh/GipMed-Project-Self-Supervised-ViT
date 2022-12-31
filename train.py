@@ -425,7 +425,7 @@ def main():
 
     if utils.is_primary(args) and args.log_wandb:
         if has_wandb:
-            wandb.init(project=args.experiment, config=args)
+            wandb.init(entity="gipmed-vit", project=args.experiment, config=args)
         else:
             _logger.warning(
                 "You've requested to log metrics to wandb but package not found. "
@@ -973,7 +973,6 @@ def train_one_epoch(
         last_batch = batch_idx == last_idx
         data_time_m.update(time.time() - end)
 
-        for (input, target) in zip(inputs, targets):
         if not args.prefetcher:
             input, target = input.to(device), target.to(device)
             if mixup_fn is not None:
