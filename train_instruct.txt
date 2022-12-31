@@ -1,0 +1,13 @@
+Need to change two files inside the timm package (change {user-name} to your user name path e.g. home/tom.rahav/...):
+
+file /home/{user-name}/miniconda3/envs/master/lib/python3.10/site-packages/timm/loss/cross_entropy.py
+Change line 22 from (no need to unsqueeze in our format):
+nll_loss = -logprobs.gather(dim=-1, index=target.unsqueeze(1)
+to:
+nll_loss = -logprobs.gather(dim=-1, index=target)
+
+file /home/{user-name}/miniconda3/envs/master/lib/python3.10/site-packages/timm/models/vision_transformer.py
+Change line 45 from (change default input size):
+'num_classes': 1000, 'input_size': (3, 224, 224), 'pool_size': None,
+to:
+'num_classes': 1000, 'input_size': (3, 256, 256), 'pool_size': None,

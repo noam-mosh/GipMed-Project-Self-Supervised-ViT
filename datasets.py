@@ -113,7 +113,6 @@ class WSI_Master_Dataset(Dataset):
 
             self.meta_data_DF = meta_data_DF if not hasattr(self, 'meta_data_DF') else self.meta_data_DF.append(
                 meta_data_DF)
-
         if self.meta_data_DF['id'].isnull().sum() > 0:
             logging.info('Disregarding slides without id')
             self.meta_data_DF = self.meta_data_DF[self.meta_data_DF['id'].notnull()]
@@ -216,7 +215,6 @@ class WSI_Master_Dataset(Dataset):
         if len(valid_slide_indices) == 0 or self.train_type == 'Infer_All_Folds' or (
                 self.target_kind == 'survival' and self.train_type == 'Infer'):
             valid_slide_indices = np.arange(len(all_targets))  # take all slides
-
         # Also remove slides without grid data:
         slides_without_grid = set(self.meta_data_DF.index[self.meta_data_DF['Total tiles - ' + str(
             self.tile_size) + ' compatible @ X' + str(self.desired_magnification)] == -1])

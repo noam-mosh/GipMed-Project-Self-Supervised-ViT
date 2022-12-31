@@ -970,11 +970,12 @@ def train_one_epoch(
         # f_names = minibatch['File Names']
         # slide_names_batch = [os.path.basename(f_name) for f_name in f_names]
         # slide_names.extend(slide_names_batch)
-
+        input = input.to(device)
+        target = target.to(device)
         last_batch = batch_idx == last_idx
         data_time_m.update(time.time() - end)
 
-        # for (input, target) in zip(inputs, targets):
+        for (input, target) in zip(inputs, targets):
         if not args.prefetcher:
             input, target = input.to(device), target.to(device)
             if mixup_fn is not None:

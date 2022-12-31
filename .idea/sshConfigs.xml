@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="SshConfigs">
+    <configs>
+      <sshConfig authType="PASSWORD" connectionConfig="{&quot;serverAliveInterval&quot;:300}" host="132.68.39.112" id="47266aa6-f5ba-4eb7-a713-98b76ff86a10" port="22" nameFormat="DESCRIPTIVE" username="tom.rahav" useOpenSSHConfig="true" />
+      <sshConfig authType="PASSWORD" connectionConfig="{&quot;serverAliveInterval&quot;:300}" host="132.68.39.112" id="3ccbdd24-f0de-4241-a962-a2dc2220e540" port="22" customName="GipMed-Project" nameFormat="CUSTOM" useOpenSSHConfig="true">
+        <option name="customName" value="GipMed-Project" />
+      </sshConfig>
+    </configs>
+  </component>
+</project>
