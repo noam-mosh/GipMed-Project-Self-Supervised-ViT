@@ -19,13 +19,11 @@ import logging
 import os
 import time
 from collections import OrderedDict
-from collections import Counter
 from contextlib import suppress
 from datetime import datetime
 from functools import partial
 
 import torch
-from torch.utils.data import DataLoader
 import torch.nn as nn
 import torchvision.utils
 import yaml
@@ -40,8 +38,6 @@ from timm.models import create_model, safe_model_name, resume_checkpoint, load_c
 from timm.optim import create_optimizer_v2, optimizer_kwargs
 from timm.scheduler import create_scheduler_v2, scheduler_kwargs
 from timm.utils import ApexScaler, NativeScaler
-
-import datasets
 
 try:
     from apex import amp
@@ -349,35 +345,7 @@ group.add_argument('--use-multi-epochs-loader', action='store_true', default=Fal
                     help='use the multi-epochs-loader to save time at the beginning of every epoch')
 group.add_argument('--log-wandb', action='store_true', default=False,
                     help='log training and validation metrics to wandb')
-# GipMed
-group.add_argument('--no-grad', action='store_true', default=False,
-                    help='Enable fine tuning only.'),
-group.add_argument('--num-output', type=int, default=None, metavar='N',
-                    help='number of label classes in new head'),
-group.add_argument('-balsam', '--balanced_sampling', dest='balanced_sampling', action='store_true', help='balanced_sampling')
 
-# ========================
-parser.add_argument('-tf', '--test_fold', default=1, type=int, help='fold to be as VALIDATION FOLD, if -1 there is no validation. refered to as TEST FOLD in folder hiererchy and code. very confusing, I agree.')
-parser.add_argument('-d', dest='dx', action='store_true', help='Use ONLY DX cut slides')
-parser.add_argument('-time', dest='time', action='store_true', help='save train timing data ?')
-parser.add_argument('-tar', '--target', default='Survival_Time', type=str, help='label: Her2/ER/PR/EGFR/PDL1')
-parser.add_argument('--n_patches_test', default=1, type=int, help='# of patches at test time')
-parser.add_argument('--n_patches_train', default=10, type=int, help='# of patches at train time')
-# parser.add_argument('--lr', default=1e-5, type=float, help='learning rate')
-parser.add_argument('--transform_type', default='rvf', type=str, help='none / flip / wcfrs (weak color+flip+rotate+scale)')
-parser.add_argument('--bootstrap', action='store_true', help='use bootstrap to estimate test AUC error')
-parser.add_argument('--eval_rate', type=int, default=5, help='Evaluate validation set every # epochs')
-parser.add_argument('--c_param', default=0.1, type=float, help='color jitter parameter')
-parser.add_argument('-im', dest='images', action='store_true', help='save data images?')
-parser.add_argument('--mag', type=int, default=10, help='desired magnification of patches')
-parser.add_argument('--loan', action='store_true', help='Localized Annotation for strongly supervised training')
-parser.add_argument('--er_eq_pr', action='store_true', help='while training, take only er=pr examples')
-parser.add_argument('--focal', action='store_true', help='use focal loss with gamma=2')
-parser.add_argument('--slide_per_block', action='store_true', help='for carmel, take only one slide per block')
-parser.add_argument('-baldat', '--balanced_dataset', dest='balanced_dataset', action='store_true', help='take same # of positive and negative patients from each dataset')
-parser.add_argument('--RAM_saver', action='store_true', help='use only a quarter of the slides + reshuffle every 100 epochs')
-parser.add_argument('-tl', '--transfer_learning', default='', type=str, help='use model trained on another experiment')
-# End GipMed
 
 def _parse_args():
     # Do we have a config file to parse?
@@ -397,15 +365,8 @@ def _parse_args():
 
 
 def main():
-    # Tile size definition:
-    TILE_SIZE = 256
-
     utils.setup_default_logging()
     args, args_text = _parse_args()
-
-    # Tile size definition:
-    if (args.dataset[:3] == 'TMA') and (args.mag == 7):
-        TILE_SIZE = 512
 
     if torch.cuda.is_available():
         torch.backends.cuda.matmul.allow_tf32 = True
@@ -473,18 +434,6 @@ def main():
         scriptable=args.torchscript,
         checkpoint_path=args.initial_checkpoint,
     )
-
-    # Tom
-    if args.initial_checkpoint and args.model == 'vit_small_patch16_224_dino':
-        if args.no_grad:
-            for p in model.parameters():
-                p.requires_grad = False
-        if args.num_output:
-            model.head = nn.Linear(384, args.num_output)
-        else:
-            model.head = nn.Linear(384, 1000)
-    # Tom end
-
     if args.num_classes is None:
         assert hasattr(model, 'num_classes'), 'Model must have `num_classes` attr if not set on cmd line/config.'
         args.num_classes = model.num_classes  # FIXME handle model default vs config num_classes more elegantly
@@ -611,91 +560,27 @@ def main():
         # NOTE: EMA model does not need to be wrapped by DDP
 
     # create the train and eval datasets
-    # dataset_train = create_dataset(
-    #     args.dataset,
-    #     root=args.data_dir,
-    #     split=args.train_split,
-    #     is_training=True,
-    #     class_map={'Positive':1, 'Negative':0},
-    #     # class_map=args.class_map,
-    #     download=args.dataset_download,
-    #     batch_size=args.batch_size,
-    #     seed=args.seed,
-    #     repeats=args.epoch_repeats,
-    # )
+    dataset_train = create_dataset(
+        args.dataset,
+        root=args.data_dir,
+        split=args.train_split,
+        is_training=True,
+        class_map=args.class_map,
+        download=args.dataset_download,
+        batch_size=args.batch_size,
+        seed=args.seed,
+        repeats=args.epoch_repeats,
+    )
 
-    # dataset_eval = create_dataset(
-    #     args.dataset,
-    #     root=args.data_dir,
-    #     split=args.val_split,
-    #     is_training=False,
-    #     class_map={'Positive': 1, 'Negative': 0},
-    #     # class_map=args.class_map,
-    #     download=args.dataset_download,
-    #     batch_size=args.batch_size,
-    # )
-
-    # Get data:
-    train_dset = datasets.WSI_REGdataset(DataSet=args.dataset,
-                                         tile_size=TILE_SIZE,
-                                         target_kind=args.target,
-                                         test_fold=args.test_fold,
-                                         train=True,
-                                         print_timing=args.time,
-                                         transform_type=args.transform_type,
-                                         n_tiles=args.n_patches_train,
-                                         color_param=args.c_param,
-                                         get_images=args.images,
-                                         desired_slide_magnification=args.mag,
-                                         DX=args.dx,
-                                         loan=args.loan,
-                                         er_eq_pr=args.er_eq_pr,
-                                         slide_per_block=args.slide_per_block,
-                                         balanced_dataset=args.balanced_dataset,
-                                         RAM_saver=args.RAM_saver
-                                         )
-
-    test_dset = datasets.WSI_REGdataset(DataSet=args.dataset,
-                                        tile_size=TILE_SIZE,
-                                        target_kind=args.target,
-                                        test_fold=args.test_fold,
-                                        train=False,
-                                        print_timing=False,
-                                        transform_type='none',
-                                        n_tiles=args.n_patches_test,
-                                        get_images=args.images,
-                                        desired_slide_magnification=args.mag,
-                                        DX=args.dx,
-                                        loan=args.loan,
-                                        er_eq_pr=args.er_eq_pr,
-                                        RAM_saver=args.RAM_saver
-                                        )
-    sampler = None
-    do_shuffle = True
-    if args.balanced_sampling:
-        labels = pd.DataFrame(train_dset.target * train_dset.factor)
-        n_pos = np.sum(labels == 'Positive').item()
-        n_neg = np.sum(labels == 'Negative').item()
-        weights = pd.DataFrame(np.zeros(len(train_dset)))
-        weights[np.array(labels == 'Positive')] = 1 / n_pos
-        weights[np.array(labels == 'Negative')] = 1 / n_neg
-        do_shuffle = False  # the sampler shuffles
-        sampler = torch.utils.data.sampler.WeightedRandomSampler(weights=weights.squeeze(), num_samples=len(train_dset))
-
-    loader_train = DataLoader(train_dset, batch_size=args.batch_size, shuffle=do_shuffle,
-                              num_workers=args.workers, pin_memory=True, sampler=sampler)
-    # loaders prints
-    # print("train loader:")
-    # print(loader_train)
-    # print("train loader enumerate:")
-    # print(list(enumerate(loader_train))[0])
-
-    eval_workers = args.workers
-    if args.distributed and ('tfds' in args.dataset or 'wds' in args.dataset):
-        # FIXME reduces validation padding issues when using TFDS, WDS w/ workers and distributed training
-        eval_workers = min(2, args.workers)
-    loader_eval = DataLoader(test_dset, batch_size=args.batch_size * 2, shuffle=False,
-                             num_workers=args.workers, pin_memory=True)
+    dataset_eval = create_dataset(
+        args.dataset,
+        root=args.data_dir,
+        split=args.val_split,
+        is_training=False,
+        class_map=args.class_map,
+        download=args.dataset_download,
+        batch_size=args.batch_size,
+    )
 
     # setup mixup / cutmix
     collate_fn = None
@@ -720,58 +605,62 @@ def main():
 
     # wrap dataset in AugMix helper
     if num_aug_splits > 1:
-        train_dset = AugMixDataset(train_dset, num_splits=num_aug_splits)
+        dataset_train = AugMixDataset(dataset_train, num_splits=num_aug_splits)
 
     # create data loaders w/ augmentation pipeiine
-    # train_interpolation = args.train_interpolation
-    # if args.no_aug or not train_interpolation:
-    #     train_interpolation = data_config['interpolation']
-    # timm_loader_train = create_loader(
-    #     dataset_train,
-    #     input_size=data_config['input_size'],
-    #     batch_size=args.batch_size,
-    #     is_training=True,
-    #     use_prefetcher=args.prefetcher,
-    #     no_aug=args.no_aug,
-    #     re_prob=args.reprob,
-    #     re_mode=args.remode,
-    #     re_count=args.recount,
-    #     re_split=args.resplit,
-    #     scale=args.scale,
-    #     ratio=args.ratio,
-    #     hflip=args.hflip,
-    #     vflip=args.vflip,
-    #     color_jitter=args.color_jitter,
-    #     auto_augment=args.aa,
-    #     num_aug_repeats=args.aug_repeats,
-    #     num_aug_splits=num_aug_splits,
-    #     interpolation=train_interpolation,
-    #     mean=data_config['mean'],
-    #     std=data_config['std'],
-    #     num_workers=args.workers,
-    #     distributed=args.distributed,
-    #     collate_fn=collate_fn,
-    #     pin_memory=args.pin_mem,
-    #     device=device,
-    #     use_multi_epochs_loader=args.use_multi_epochs_loader,
-    #     worker_seeding=args.worker_seeding,
-    # )
+    train_interpolation = args.train_interpolation
+    if args.no_aug or not train_interpolation:
+        train_interpolation = data_config['interpolation']
+    loader_train = create_loader(
+        dataset_train,
+        input_size=data_config['input_size'],
+        batch_size=args.batch_size,
+        is_training=True,
+        use_prefetcher=args.prefetcher,
+        no_aug=args.no_aug,
+        re_prob=args.reprob,
+        re_mode=args.remode,
+        re_count=args.recount,
+        re_split=args.resplit,
+        scale=args.scale,
+        ratio=args.ratio,
+        hflip=args.hflip,
+        vflip=args.vflip,
+        color_jitter=args.color_jitter,
+        auto_augment=args.aa,
+        num_aug_repeats=args.aug_repeats,
+        num_aug_splits=num_aug_splits,
+        interpolation=train_interpolation,
+        mean=data_config['mean'],
+        std=data_config['std'],
+        num_workers=args.workers,
+        distributed=args.distributed,
+        collate_fn=collate_fn,
+        pin_memory=args.pin_mem,
+        device=device,
+        use_multi_epochs_loader=args.use_multi_epochs_loader,
+        worker_seeding=args.worker_seeding,
+    )
 
-    # loader_eval = create_loader(
-    #     dataset_eval,
-    #     input_size=data_config['input_size'],
-    #     batch_size=args.validation_batch_size or args.batch_size,
-    #     is_training=False,
-    #     use_prefetcher=args.prefetcher,
-    #     interpolation=data_config['interpolation'],
-    #     mean=data_config['mean'],
-    #     std=data_config['std'],
-    #     num_workers=eval_workers,
-    #     distributed=args.distributed,
-    #     crop_pct=data_config['crop_pct'],
-    #     pin_memory=args.pin_mem,
-    #     device=device,
-    # )
+    eval_workers = args.workers
+    if args.distributed and ('tfds' in args.dataset or 'wds' in args.dataset):
+        # FIXME reduces validation padding issues when using TFDS, WDS w/ workers and distributed training
+        eval_workers = min(2, args.workers)
+    loader_eval = create_loader(
+        dataset_eval,
+        input_size=data_config['input_size'],
+        batch_size=args.validation_batch_size or args.batch_size,
+        is_training=False,
+        use_prefetcher=args.prefetcher,
+        interpolation=data_config['interpolation'],
+        mean=data_config['mean'],
+        std=data_config['std'],
+        num_workers=eval_workers,
+        distributed=args.distributed,
+        crop_pct=data_config['crop_pct'],
+        pin_memory=args.pin_mem,
+        device=device,
+    )
 
     # setup loss function
     if args.jsd_loss:
@@ -849,8 +738,8 @@ def main():
 
     try:
         for epoch in range(start_epoch, num_epochs):
-            if hasattr(train_dset, 'set_epoch'):
-                train_dset.set_epoch(epoch)
+            if hasattr(dataset_train, 'set_epoch'):
+                dataset_train.set_epoch(epoch)
             elif args.distributed and hasattr(loader_train.sampler, 'set_epoch'):
                 loader_train.sampler.set_epoch(epoch)
 
@@ -924,8 +813,6 @@ def main():
     if best_metric is not None:
         _logger.info('*** Best metric: {0} (epoch {1})'.format(best_metric, best_epoch))
 
-    if has_wandb:
-        wandb.run.finish()
 
 def train_one_epoch(
         epoch,
@@ -960,19 +847,9 @@ def train_one_epoch(
     num_batches_per_epoch = len(loader)
     last_idx = num_batches_per_epoch - 1
     num_updates = epoch * num_batches_per_epoch
-    # for batch_idx, (input, target) in enumerate(loader):
-
-    for batch_idx, minibatch in enumerate(loader):
-        input = minibatch['Data']
-        target = minibatch['Target']
-        # f_names = minibatch['File Names']
-        # slide_names_batch = [os.path.basename(f_name) for f_name in f_names]
-        # slide_names.extend(slide_names_batch)
-
+    for batch_idx, (input, target) in enumerate(loader):
         last_batch = batch_idx == last_idx
         data_time_m.update(time.time() - end)
-
-        # for (input, target) in zip(inputs, targets):
         if not args.prefetcher:
             input, target = input.to(device), target.to(device)
             if mixup_fn is not None:
@@ -1047,22 +924,22 @@ def train_one_epoch(
                         padding=0,
                         normalize=True
                     )
-            # ROC
-            wandb.log({"ROC": wandb.plot.roc_curve(target.cpu().detach(), output.cpu().detach())})
-            # Precision-Recall
-            wandb.log({"pr": wandb.plot.pr_curve(target.cpu().detach(), output.cpu().detach())})
-            # Confusion Matrices
-            # wandb.sklearn.plot_confusion_matrix(predictions.detach(), ground_truth.detach(), labels = ["Positive", "Negative"])
-            # =========================================================================================
+        # ROC
+        wandb.log({"ROC": wandb.plot.roc_curve(target.cpu().detach(), output.cpu().detach())})
+        # Precision-Recall
+        wandb.log({"pr": wandb.plot.pr_curve(target.cpu().detach(), output.cpu().detach())})
+        # Confusion Matrices
+        # wandb.sklearn.plot_confusion_matrix(predictions.detach(), ground_truth.detach(), labels = ["Positive", "Negative"])
+        # =========================================================================================
 
-            if saver is not None and args.recovery_interval and (
-                    last_batch or (batch_idx + 1) % args.recovery_interval == 0):
-                saver.save_recovery(epoch, batch_idx=batch_idx)
+        if saver is not None and args.recovery_interval and (
+                last_batch or (batch_idx + 1) % args.recovery_interval == 0):
+            saver.save_recovery(epoch, batch_idx=batch_idx)
 
-            if lr_scheduler is not None:
-                lr_scheduler.step_update(num_updates=num_updates, metric=losses_m.avg)
+        if lr_scheduler is not None:
+            lr_scheduler.step_update(num_updates=num_updates, metric=losses_m.avg)
 
-            end = time.time()
+        end = time.time()
         # end for
 
     if hasattr(optimizer, 'sync_lookahead'):
@@ -1090,18 +967,7 @@ def validate(
     end = time.time()
     last_idx = len(loader) - 1
     with torch.no_grad():
-        # for batch_idx, (input, target) in enumerate(loader):
-        for batch_idx, minibatch in enumerate(loader):
-            inputs = minibatch['Data']
-            targets = minibatch['Target']
-            # f_names = minibatch['File Names']
-            # slide_names_batch = [os.path.basename(f_name) for f_name in f_names]
-            # slide_names.extend(slide_names_batch)
-
-            last_batch = batch_idx == last_idx
-            data_time_m.update(time.time() - end)
-
-            # for (input, target) in zip(inputs, targets):
+        for batch_idx, (input, target) in enumerate(loader):
             last_batch = batch_idx == last_idx
             if not args.prefetcher:
                 input = input.to(device)
