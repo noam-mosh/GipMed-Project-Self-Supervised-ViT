@@ -459,6 +459,8 @@ def main():
     elif args.input_size is not None:
         in_chans = args.input_size[0]
 
+    print('args.test_fold:', args.test_fold)
+
     model = create_model(
         args.model,
         pretrained=args.pretrained,
@@ -878,7 +880,8 @@ def main():
             eval_metrics = validate(
                 model,
                 loader_eval,
-                validate_loss_fn,
+                train_loss_fn,
+                # validate_loss_fn,
                 args,
                 amp_autocast=amp_autocast,
             )
@@ -982,6 +985,12 @@ def train_one_epoch(
 
         with amp_autocast():
             output = model(input)
+
+            print("target shape:" + str(target.shape))
+            print("target:" + str(target))
+
+            print("output shape:" + str(output.shape))
+            print("output:" + str(output))
             loss = loss_fn(output, target)
 
         if not args.distributed:
@@ -1092,14 +1101,16 @@ def validate(
     with torch.no_grad():
         # for batch_idx, (input, target) in enumerate(loader):
         for batch_idx, minibatch in enumerate(loader):
-            inputs = minibatch['Data']
-            targets = minibatch['Target']
+            input = minibatch['Data']
+            target = minibatch['Target']
             # f_names = minibatch['File Names']
             # slide_names_batch = [os.path.basename(f_name) for f_name in f_names]
             # slide_names.extend(slide_names_batch)
 
+            input = input.to(device)
+            target = target.to(device)
             last_batch = batch_idx == last_idx
-            data_time_m.update(time.time() - end)
+            batch_time_m.update(time.time() - end)
 
             # for (input, target) in zip(inputs, targets):
             last_batch = batch_idx == last_idx
@@ -1120,6 +1131,14 @@ def validate(
                 output = output.unfold(0, reduce_factor, reduce_factor).mean(dim=2)
                 target = target[0:target.size(0):reduce_factor]
 
+            print("input shape:" + str(input.shape))
+            print("target shape:" + str(target.shape))
+            print("outpus shape:" + str(output.shape))
+
+
+            print("target:" + str(target))
+            print("outpus:" + str(output))
+
             loss = loss_fn(output, target)
             acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
 
@@ -1132,7 +1151,6 @@ def validate(
 
             if device.type == 'cuda':
                 torch.cuda.synchronize()
-
             losses_m.update(reduced_loss.item(), input.size(0))
             top1_m.update(acc1.item(), output.size(0))
             top5_m.update(acc5.item(), output.size(0))
