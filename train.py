@@ -990,11 +990,11 @@ def train_one_epoch(
         with amp_autocast():
             output = model(input)
 
-            print("target shape:" + str(target.shape))
-            print("target:" + str(target))
-
-            print("output shape:" + str(output.shape))
-            print("output:" + str(output))
+            # print("target shape:" + str(target.shape))
+            # print("target:" + str(target))
+            #
+            # print("output shape:" + str(output.shape))
+            # print("output:" + str(output))
             loss = loss_fn(output, target)
 
         if not args.distributed:
@@ -1135,13 +1135,12 @@ def validate(
                 output = output.unfold(0, reduce_factor, reduce_factor).mean(dim=2)
                 target = target[0:target.size(0):reduce_factor]
 
-            print("input shape:" + str(input.shape))
-            print("target shape:" + str(target.shape))
-            print("outpus shape:" + str(output.shape))
-
-
-            print("target:" + str(target))
-            print("outpus:" + str(output))
+            # print("input shape:" + str(input.shape))
+            # print("target shape:" + str(target.shape))
+            # print("outpus shape:" + str(output.shape))
+            #
+            # print("target:" + str(target))
+            # print("outpus:" + str(output))
 
             loss = loss_fn(output, target)
             acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
