@@ -16,8 +16,11 @@ Current srun command:
 Supervised: python train.py --model vit_small_patch16_224 --dataset TCGA --epochs 100 --target ER --workers 2 --num-classes 2 --log-wandb --experiment Supervised --subexperiment 1.0
 SSL: python train.py --model vit_small_patch16_224_dino --dataset TCGA --epochs 100 --target ER --workers 2 --num-classes 2 --log-wandb --experiment SSl --subexperiment 1.0
 Current sbatch command:
-Supervised: ./py-sbatch.sh train.py --model vit_small_patch16_224 --dataset TCGA --epochs 100 --target ER  --workers 2--num-classes 2 --log-wandb --experiment Supervised --subexperiment 0.1
-SSL: ./py-sbatch.sh train.py --model vit_small_patch16_224_dino --dataset TCGA --epochs 100 --target ER  --workers 2--num-classes 2 --log-wandb --experiment SSL --subexperiment 0.1
+Supervised: ./py-sbatch.sh train.py --model vit_small_patch16_224 --dataset TCGA --epochs 100 --target ER --workers 2 --num-classes 2 --log-wandb --experiment Supervised --subexperiment 0.1
+SSL: ./py-sbatch.sh train.py --model vit_small_patch16_224_dino --dataset TCGA --epochs 100 --target ER --workers 2 --num-classes 2 --log-wandb --experiment SSL --subexperiment 0.1
+
+
+
 
 
 (old:)
