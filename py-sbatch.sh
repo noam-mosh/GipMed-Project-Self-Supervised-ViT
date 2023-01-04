@@ -20,7 +20,7 @@ NUM_NODES=1
 NUM_CORES=2
 NUM_GPUS=2
 JOB_NAME="ViT"
-MAIL_USER="noam.moshe@campus.technion.ac.il"
+MAIL_USER="tom.rahav@campus.technion.ac.il"
 MAIL_TYPE=END # Valid values are NONE, BEGIN, END, FAIL, REQUEUE, ALL
 
 ###
@@ -47,7 +47,8 @@ sbatch \
 conda activate $CONDA_ENV
 source $CONDA_HOME/etc/profile.d/conda.sh
 echo "*** Activating environment $CONDA_ENV ***"
-
+# Run python with the args to the script
+python $@
 echo "*** SLURM BATCH JOB '$JOB_NAME' STARTING ***"
 EOF
 
