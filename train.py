@@ -340,6 +340,8 @@ group.add_argument('--output', default='', type=str, metavar='PATH',
                     help='path to output folder (default: none, current dir)')
 group.add_argument('--experiment', default='', type=str, metavar='NAME',
                     help='name of train experiment, name of sub-folder for output')
+group.add_argument('--subexperiment', default='', type=str, metavar='NAME',
+                    help='name of train subexperiment, name of sub-sub-folder for output')
 group.add_argument('--eval-metric', default='top1', type=str, metavar='EVAL_METRIC',
                     help='Best metric (default: "top1"')
 group.add_argument('--tta', type=int, default=0, metavar='N',
@@ -804,13 +806,15 @@ def main():
     if utils.is_primary(args):
         if args.experiment:
             exp_name = args.experiment
+            if args.subexperiment:
+                subexp_name = args.subexperiment
         else:
             exp_name = '-'.join([
                 datetime.now().strftime("%Y%m%d-%H%M%S"),
                 safe_model_name(args.model),
                 str(data_config['input_size'][-1])
             ])
-        output_dir = utils.get_outdir(args.output if args.output else './output/train', exp_name)
+        output_dir = utils.get_outdir(args.output if args.output else './output/train', exp_name, subexp_name)
         decreasing = True if eval_metric == 'loss' else False
         saver = utils.CheckpointSaver(
             model=model,

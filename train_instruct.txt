@@ -13,7 +13,6 @@ to:
 'num_classes': 1000, 'input_size': (3, 256, 256), 'pool_size': None,
 
 Current srun command:
-python train.py --model vit_small_patch16_224 --dataset TCGA --epochs 30 --batch-size 10 --target ER --workers 2 --num-classes 2 --balanced_dataset --log-wandb --experiment Supervised
-
+python train.py --model vit_small_patch16_224 --dataset TCGA --epochs 30 --batch-size 10 --target ER --workers 2 --num-classes 2 --balanced_dataset --log-wandb --experiment Supervised --subexperiment 1.0
 Current sbatch command:
-./py-sbatch.sh train.py --model vit_small_patch16_224 --dataset TCGA --epochs 30 --batch-size 10 --target ER --workers 2 --num-classes 2 --balanced_dataset --log-wandb --experiment Supervised
+./py-sbatch.sh train.py --model vit_small_patch16_224 --dataset TCGA --epochs 30 --batch-size 10 --target ER --workers 2 --num-classes 2 --balanced_dataset --log-wandb --experiment Supervised --subexperiment 1.0
