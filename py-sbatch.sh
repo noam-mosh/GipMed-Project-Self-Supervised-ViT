@@ -2,7 +2,6 @@
 
 ###
 # py-sbatch.sh
-#
 # This script runs python from within our conda env as a slurm batch job.
 # All arguments passed to this script are passed directly to the python
 # interpreter.
@@ -10,7 +9,6 @@
 
 ###
 # Example usage:
-#
 # Running any other python script myscript.py with arguments
 # ./py-sbatch.sh myscript.py --arg1 --arg2=val2
 #
@@ -20,9 +18,9 @@
 #
 NUM_NODES=1
 NUM_CORES=2
-NUM_GPUS=1
+NUM_GPUS=2
 JOB_NAME="ViT"
-MAIL_USER="tom.rahav@campus.technion.ac.il"
+MAIL_USER="noam.moshe@campus.technion.ac.il"
 MAIL_TYPE=END # Valid values are NONE, BEGIN, END, FAIL, REQUEUE, ALL
 
 ###
@@ -30,8 +28,12 @@ MAIL_TYPE=END # Valid values are NONE, BEGIN, END, FAIL, REQUEUE, ALL
 #
 CONDA_HOME=$HOME/miniconda3
 CONDA_ENV=master
+PARTITION="gipmed"
+MY_ACCOUNT="gipmed"
 
 sbatch \
+	-A $MY_ACCOUNT \
+  -p $PARTITION \
 	-N $NUM_NODES \
 	-c $NUM_CORES \
 	--gres=gpu:$NUM_GPUS \
@@ -41,8 +43,11 @@ sbatch \
 	-o 'slurm-gimped-vit.out' \
 <<EOF
 #!/bin/bash
+# Setup the conda env
+conda activate $CONDA_ENV
+source $CONDA_HOME/etc/profile.d/conda.sh
+echo "*** Activating environment $CONDA_ENV ***"
+
 echo "*** SLURM BATCH JOB '$JOB_NAME' STARTING ***"
-
-
 EOF
 
