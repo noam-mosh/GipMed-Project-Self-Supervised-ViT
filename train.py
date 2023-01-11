@@ -425,13 +425,14 @@ def main():
         _logger.info(f'Training with a single process on 1 device ({args.device}).')
     assert args.rank >= 0
 
-    if utils.is_primary(args) and args.log_wandb:
-        if has_wandb:
-            wandb.init(entity="gipmed-vit", project=args.experiment, config=args)
-        else:
-            _logger.warning(
-                "You've requested to log metrics to wandb but package not found. "
-                "Metrics not being logged to wandb, try `pip install wandb`")
+    # if utils.is_primary(args) and args.log_wandb:
+    #     if has_wandb:
+    #         wandb.init(entity="gipmed-vit", project=args.experiment, config=args, group="DDP")
+    #     else:
+    #         _logger.warning(
+    #             "You've requested to log metrics to wandb but package not found. "
+    #             "Metrics not being logged to wandb, try `pip install wandb`")
+    run = wandb.init(entity="gipmed-vit", project=args.experiment, config=args, group="DDP")
 
     # resolve AMP arguments based on PyTorch / Apex availability
     use_amp = None
@@ -867,14 +868,16 @@ def main():
                 optimizer,
                 train_loss_fn,
                 args,
+                run,
                 lr_scheduler=lr_scheduler,
                 saver=saver,
                 output_dir=output_dir,
                 amp_autocast=amp_autocast,
                 loss_scaler=loss_scaler,
                 model_ema=model_ema,
-                mixup_fn=mixup_fn,
-            )
+                mixup_fn=mixup_fn
+
+)
 
             if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
                 if utils.is_primary(args):
@@ -931,8 +934,8 @@ def main():
     if best_metric is not None:
         _logger.info('*** Best metric: {0} (epoch {1})'.format(best_metric, best_epoch))
 
-    if has_wandb:
-        wandb.run.finish()
+    # if has_wandb:
+    #     wandb.run.finish()
 
 def train_one_epoch(
         epoch,
@@ -941,6 +944,7 @@ def train_one_epoch(
         optimizer,
         loss_fn,
         args,
+        run,
         device=torch.device('cuda'),
         lr_scheduler=None,
         saver=None,
@@ -948,7 +952,7 @@ def train_one_epoch(
         amp_autocast=suppress,
         loss_scaler=None,
         model_ema=None,
-        mixup_fn=None
+        mixup_fn=None,
 ):
     if args.mixup_off_epoch and epoch >= args.mixup_off_epoch:
         if args.prefetcher and loader.mixup_enabled:
@@ -1061,9 +1065,9 @@ def train_one_epoch(
                         normalize=True
                     )
             # ROC
-            wandb.log({"ROC": wandb.plot.roc_curve(target.cpu().detach(), output.cpu().detach())})
+            run.log({"ROC": wandb.plot.roc_curve(target.cpu().detach(), output.cpu().detach())})
             # Precision-Recall
-            wandb.log({"pr": wandb.plot.pr_curve(target.cpu().detach(), output.cpu().detach())})
+            run.log({"pr": wandb.plot.pr_curve(target.cpu().detach(), output.cpu().detach())})
             # Confusion Matrices
             # wandb.sklearn.plot_confusion_matrix(predictions.detach(), ground_truth.detach(), labels = ["Positive", "Negative"])
             # =========================================================================================
