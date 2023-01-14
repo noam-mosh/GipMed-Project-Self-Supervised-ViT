@@ -25,7 +25,7 @@ from datetime import datetime
 from functools import partial
 
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 import torch.nn as nn
 import torchvision.utils
 import yaml
@@ -380,6 +380,7 @@ parser.add_argument('-baldat', '--balanced_dataset', dest='balanced_dataset', ac
 parser.add_argument('--RAM_saver', action='store_true', help='use only a quarter of the slides + reshuffle every 100 epochs')
 parser.add_argument('-tl', '--transfer_learning', default='', type=str, help='use model trained on another experiment')
 # End GipMed
+parser.add_argument('--supervised', action='store_true', help='work only with the test fold as 80/20 partition')
 
 def _parse_args():
     # Do we have a config file to parse?
@@ -641,24 +642,25 @@ def main():
     # )
 
     # Get data:
-    train_dset = datasets.WSI_REGdataset(DataSet=args.dataset,
-                                         tile_size=TILE_SIZE,
-                                         target_kind=args.target,
-                                         test_fold=args.test_fold,
-                                         train=True,
-                                         print_timing=args.time,
-                                         transform_type=args.transform_type,
-                                         n_tiles=args.n_patches_train,
-                                         color_param=args.c_param,
-                                         get_images=args.images,
-                                         desired_slide_magnification=args.mag,
-                                         DX=args.dx,
-                                         loan=args.loan,
-                                         er_eq_pr=args.er_eq_pr,
-                                         slide_per_block=args.slide_per_block,
-                                         balanced_dataset=args.balanced_dataset,
-                                         RAM_saver=args.RAM_saver
-                                         )
+    if not args.supervised:
+        train_dset = datasets.WSI_REGdataset(DataSet=args.dataset,
+                                             tile_size=TILE_SIZE,
+                                             target_kind=args.target,
+                                             test_fold=args.test_fold,
+                                             train=True,
+                                             print_timing=args.time,
+                                             transform_type=args.transform_type,
+                                             n_tiles=args.n_patches_train,
+                                             color_param=args.c_param,
+                                             get_images=args.images,
+                                             desired_slide_magnification=args.mag,
+                                             DX=args.dx,
+                                             loan=args.loan,
+                                             er_eq_pr=args.er_eq_pr,
+                                             slide_per_block=args.slide_per_block,
+                                             balanced_dataset=args.balanced_dataset,
+                                             RAM_saver=args.RAM_saver
+                                             )
 
     test_dset = datasets.WSI_REGdataset(DataSet=args.dataset,
                                         tile_size=TILE_SIZE,
@@ -687,6 +689,9 @@ def main():
         do_shuffle = False  # the sampler shuffles
         sampler = torch.utils.data.sampler.WeightedRandomSampler(weights=weights.squeeze(), num_samples=len(train_dset))
 
+    if args.supervised:
+        temp_size = len(test_dset)
+        train_dset, test_dset = random_split(test_dset, (int(temp_size*0.8), temp_size - int(temp_size*0.8)))
     loader_train = DataLoader(train_dset, batch_size=args.batch_size, shuffle=do_shuffle,
                               num_workers=args.workers, pin_memory=True, sampler=sampler)
     # loaders prints
