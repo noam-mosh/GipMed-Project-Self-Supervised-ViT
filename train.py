@@ -481,14 +481,11 @@ def main():
     )
 
     # Tom
-    if args.initial_checkpoint and args.model == 'vit_small_patch16_224_dino':
-        if args.no_grad:
-            for p in model.parameters():
-                p.requires_grad = False
-        if args.num_output:
-            model.head = nn.Linear(384, args.num_output)
-        else:
-            model.head = nn.Linear(384, 1000)
+    if args.no_grad:
+        for p in model.parameters():
+            p.requires_grad = False
+        for p in model.head.parameters():
+            p.requires_grad = True
     # Tom end
 
     if args.num_classes is None:
