@@ -23,6 +23,8 @@ from collections import Counter
 from contextlib import suppress
 from datetime import datetime
 from functools import partial
+from sklearn.metrics import roc_curve, auc, roc_auc_score
+import numpy as np
 
 import torch
 from torch.utils.data import DataLoader, random_split
@@ -342,6 +344,8 @@ group.add_argument('--experiment', default='', type=str, metavar='NAME',
                     help='name of train experiment, name of sub-folder for output')
 group.add_argument('--subexperiment', default='', type=str, metavar='NAME',
                     help='name of train subexperiment, name of sub-sub-folder for output')
+group.add_argument('--group', default='', type=str, metavar='NAME',
+                    help='name of train group for DDP visualization with wandb')
 group.add_argument('--eval-metric', default='top1', type=str, metavar='EVAL_METRIC',
                     help='Best metric (default: "top1"')
 group.add_argument('--tta', type=int, default=0, metavar='N',
@@ -433,7 +437,10 @@ def main():
     #         _logger.warning(
     #             "You've requested to log metrics to wandb but package not found. "
     #             "Metrics not being logged to wandb, try `pip install wandb`")
-    run = wandb.init(entity="gipmed-vit", project=args.experiment, config=args, group="DDP")
+    if args.group:
+        run = wandb.init(entity="gipmed-vit", project=args.experiment, config=args, group=args.group)
+    else:
+        run = wandb.init(entity="gipmed-vit", project=args.experiment, config=args)
 
     # resolve AMP arguments based on PyTorch / Apex availability
     use_amp = None
@@ -1072,6 +1079,18 @@ def train_one_epoch(
             run.log({"pr": wandb.plot.pr_curve(target.cpu().detach(), output.cpu().detach())})
             # Confusion Matrices
             # wandb.sklearn.plot_confusion_matrix(predictions.detach(), ground_truth.detach(), labels = ["Positive", "Negative"])
+            # fpr, tpr, roc_auc = dict(), dict(), dict()
+            # Compute micro-average ROC curve and ROC area
+            # fpr["micro"], tpr["micro"], _ = roc_curve(target.cpu().ravel(), output.cpu().ravel())
+            # roc_auc["micro"] = auc(fpr["micro"], tpr["micro"])
+            # run.log({"auc": roc_auc["micro"]})
+
+            # roc_auc_train = np.float64(np.nan)
+            # if len(np.unique(true_targets_train[true_targets_train >= 0])) > 1:  # more than one label
+            # fpr_train, tpr_train, _ = roc_curve(target.cpu().detach(), output.cpu().detach())
+            # roc_auc_train = auc(fpr_train, tpr_train)
+            roc_auc_train = roc_auc_score(target.cpu().detach(), output.cpu().detach()[:, 1])
+            run.log({"auc": roc_auc_train if roc_auc_train.size == 1 else roc_auc_train[0]})
             # =========================================================================================
 
             if saver is not None and args.recovery_interval and (
