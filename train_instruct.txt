@@ -19,7 +19,17 @@ Current sbatch command:
 Supervised: ./py-sbatch.sh train.py --model vit_small_patch16_224 --dataset TCGA --epochs 100 --target ER --workers 2 --num-classes 2 --log-wandb --experiment Supervised --subexperiment 0.1
 SSL: ./py-sbatch.sh train.py --model vit_small_patch16_224_dino --dataset CAT --epochs 500 --batch_size 1024 --target ER --num-classes 2 --log-wandb --experiment SSL --subexperiment 0.1
 
+Supervised-Baseline:
+./sbatch.sh train.py --model vit_small_patch16_224 --dataset CAT --epochs 500 --target ER --num-classes 2 --batch-size 256 --workers 2 --supervised --log-wandb --experiment Supervised --subexperiment 1.1
+--lr-base 0.001 --opt adam --warmup-epochs 20
 
+Supervised-fine-tune-no-grad:
+./sbatch.sh train.py --model vit_small_patch16_224 --dataset CAT --epochs 500 --target ER --num-classes 2 --batch-size 256 --workers 2 --supervised --log-wandb --experiment Supervised --subexperiment 1.2
+ --initial-checkpoint "/home/noam.moshe/model_best.pth.tar" --no-grad --lr-base 0.001 --sched cosine --warmup-epochs 20
+
+Supervised-fine-tune-grad:
+./sbatch.sh train.py --model vit_small_patch16_224 --dataset CAT --epochs 500 --target ER --num-classes 2 --batch-size 256 --workers 2 --supervised --log-wandb --experiment Supervised --subexperiment 1.3
+ --initial-checkpoint "/home/noam.moshe/model_best.pth.tar" --lr-base 0.001 --sched cosine --warmup-epochs 20
 
 (old:)
 ./py-sbatch.sh train.py --model vit_small_patch16_224_dino --dataset TCGA --epochs 30 --batch-size 10 --target ER --workers 2 --num-classes 2 --balanced_dataset --log-wandb --experiment Supervised --subexperiment 1.0
