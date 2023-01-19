@@ -25,6 +25,7 @@ from datetime import datetime
 from functools import partial
 from sklearn.metrics import roc_curve, auc, roc_auc_score
 import numpy as np
+import pandas as pd
 
 import torch
 from torch.utils.data import DataLoader, random_split
@@ -683,19 +684,25 @@ def main():
                                         )
     sampler = None
     do_shuffle = True
+
+    if args.supervised:
+        temp_size = len(test_dset)
+        train_dset, test_dset = random_split(test_dset, (int(temp_size*0.8), temp_size - int(temp_size*0.8)))
+
     if args.balanced_sampling:
-        labels = pd.DataFrame(train_dset.target * train_dset.factor)
+        labels = pd.DataFrame(train_dset.dataset.target * train_dset.dataset.factor)
         n_pos = np.sum(labels == 'Positive').item()
         n_neg = np.sum(labels == 'Negative').item()
-        weights = pd.DataFrame(np.zeros(len(train_dset)))
+        weights = pd.DataFrame(np.zeros(n_pos+n_neg))
+        print("train size:" + str(len(train_dset)))
+        print("test size:" + str(len(test_dset)))
+        print("weights df shape is" + str(weights.shape))
+        print(weights[np.array(labels == 'Positive')])
         weights[np.array(labels == 'Positive')] = 1 / n_pos
         weights[np.array(labels == 'Negative')] = 1 / n_neg
         do_shuffle = False  # the sampler shuffles
         sampler = torch.utils.data.sampler.WeightedRandomSampler(weights=weights.squeeze(), num_samples=len(train_dset))
 
-    if args.supervised:
-        temp_size = len(test_dset)
-        train_dset, test_dset = random_split(test_dset, (int(temp_size*0.8), temp_size - int(temp_size*0.8)))
     loader_train = DataLoader(train_dset, batch_size=args.batch_size, shuffle=do_shuffle,
                               num_workers=args.workers, pin_memory=True, sampler=sampler)
     # loaders prints
@@ -1078,17 +1085,6 @@ def train_one_epoch(
             # Precision-Recall
             run.log({"pr": wandb.plot.pr_curve(target.cpu().detach(), output.cpu().detach())})
             # Confusion Matrices
-            # wandb.sklearn.plot_confusion_matrix(predictions.detach(), ground_truth.detach(), labels = ["Positive", "Negative"])
-            # fpr, tpr, roc_auc = dict(), dict(), dict()
-            # Compute micro-average ROC curve and ROC area
-            # fpr["micro"], tpr["micro"], _ = roc_curve(target.cpu().ravel(), output.cpu().ravel())
-            # roc_auc["micro"] = auc(fpr["micro"], tpr["micro"])
-            # run.log({"auc": roc_auc["micro"]})
-
-            # roc_auc_train = np.float64(np.nan)
-            # if len(np.unique(true_targets_train[true_targets_train >= 0])) > 1:  # more than one label
-            # fpr_train, tpr_train, _ = roc_curve(target.cpu().detach(), output.cpu().detach())
-            # roc_auc_train = auc(fpr_train, tpr_train)
             roc_auc_train = roc_auc_score(target.cpu().detach(), output.cpu().detach()[:, 1])
             run.log({"auc": roc_auc_train if roc_auc_train.size == 1 else roc_auc_train[0]})
             # =========================================================================================
