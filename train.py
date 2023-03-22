@@ -201,6 +201,7 @@ group.add_argument('--lr-cycle-decay', type=float, default=0.5, metavar='MULT',
                     help='amount to decay each learning rate cycle (default: 0.5)')
 group.add_argument('--lr-cycle-limit', type=int, default=1, metavar='N',
                     help='learning rate cycle limit, cycles enabled if > 1')
+                    help='learning rate cycle limit, cycles enabled if > 1')
 group.add_argument('--lr-k-decay', type=float, default=1.0,
                     help='learning rate k-decay for cosine/poly (default: 1.0)')
 group.add_argument('--warmup-lr', type=float, default=1e-5, metavar='LR',
@@ -1081,12 +1082,12 @@ def train_one_epoch(
                         normalize=True
                     )
             # ROC
-            run.log({"ROC": wandb.plot.roc_curve(target.cpu().detach(), output.cpu().detach())})
+            run.log({"roc_train": wandb.plot.roc_curve(target.cpu().detach(), output.cpu().detach())})
             # Precision-Recall
-            run.log({"pr": wandb.plot.pr_curve(target.cpu().detach(), output.cpu().detach())})
+            run.log({"pr_train": wandb.plot.pr_curve(target.cpu().detach(), output.cpu().detach())})
             # Confusion Matrices
             roc_auc_train = roc_auc_score(target.cpu().detach(), output.cpu().detach()[:, 1])
-            run.log({"auc": roc_auc_train if roc_auc_train.size == 1 else roc_auc_train[0]})
+            run.log({"auc_train": roc_auc_train if roc_auc_train.size == 1 else roc_auc_train[0]})
             # =========================================================================================
 
             if saver is not None and args.recovery_interval and (
@@ -1195,6 +1196,13 @@ def validate(
                         top1=top1_m,
                         top5=top5_m)
                 )
+            # ROC
+            run.log({"roc_eval": wandb.plot.roc_curve(target.cpu().detach(), output.cpu().detach())})
+            # Precision-Recall
+            run.log({"pr_eval": wandb.plot.pr_curve(target.cpu().detach(), output.cpu().detach())})
+            # Confusion Matrices
+            roc_auc_eval = roc_auc_score(target.cpu().detach(), output.cpu().detach()[:, 1])
+            run.log({"auc_eval": roc_auc_val if roc_auc_eval.size == 1 else roc_auc_eval[0]})
 
     metrics = OrderedDict([('loss', losses_m.avg), ('top1', top1_m.avg), ('top5', top5_m.avg)])
 
