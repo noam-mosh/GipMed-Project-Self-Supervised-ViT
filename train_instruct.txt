@@ -20,8 +20,7 @@ Supervised: ./py-sbatch.sh train.py --model vit_small_patch16_224 --dataset TCGA
 SSL: ./py-sbatch.sh train.py --model vit_small_patch16_224_dino --dataset CAT --epochs 500 --batch_size 1024 --target ER --num-classes 2 --log-wandb --experiment SSL --subexperiment 0.1
 
 Supervised-Baseline:
-./sbatch.sh train.py --model vit_small_patch16_224 --dataset CAT --epochs 500 --target ER --num-classes 2 --batch-size 256 --workers 2 --supervised --log-wandb --experiment Supervised --subexperiment 1.1
---lr-base 0.001 --opt adam --warmup-epochs 20
+./sbatch.sh train.py --model vit_small_patch16_224 --dataset CAT --epochs 500 --target ER --num-classes 2 --batch-size 256 --workers 2 --supervised --log-wandb --experiment Supervised --subexperiment 1.1 --lr-base 0.001 --opt adam --warmup-epochs 20
 
 Supervised-fine-tune-no-grad:
 ./sbatch.sh train.py --model vit_small_patch16_224 --dataset CAT --epochs 500 --target ER --num-classes 2 --batch-size 256 --workers 2 --supervised --log-wandb --experiment Supervised --subexperiment 1.2

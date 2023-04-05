@@ -384,6 +384,10 @@ parser.add_argument('--slide_per_block', action='store_true', help='for carmel, 
 parser.add_argument('-baldat', '--balanced_dataset', dest='balanced_dataset', action='store_true', help='take same # of positive and negative patients from each dataset')
 parser.add_argument('--RAM_saver', action='store_true', help='use only a quarter of the slides + reshuffle every 100 epochs')
 parser.add_argument('-tl', '--transfer_learning', default='', type=str, help='use model trained on another experiment')
+parser.add_argument('-nt', '--num_tiles', type=int, default=100, help='Number of tiles per slide')
+parser.add_argument('-tpi', '--tiles_per_iter', type=int, default=50, help='Number of tiles per batch')
+
+# args.folds = list(map(int, args.folds[0]))
 # End GipMed
 parser.add_argument('--supervised', action='store_true', help='work only with the test fold as 80/20 partition')
 
@@ -682,6 +686,20 @@ def main():
                                         er_eq_pr=args.er_eq_pr,
                                         RAM_saver=args.RAM_saver
                                         )
+
+    inf_dset = datasets.Infer_Dataset(DataSet=args.dataset,
+                                      tile_size=TILE_SIZE,
+                                      tiles_per_iter=args.tiles_per_iter,
+                                      target_kind=args.target,
+                                      # folds=args.folds,
+                                      num_tiles=args.num_tiles,
+                                      desired_slide_magnification=args.mag,
+                                      dx=args.dx)
+                                      # resume_slide=slide_num,
+                                      # patch_dir=args.patch_dir,
+                                      # chosen_seed=args.seed)
+
+    NUM_SLIDES = len(inf_dset.image_file_names)
     sampler = None
     do_shuffle = True
 
@@ -705,6 +723,11 @@ def main():
 
     loader_train = DataLoader(train_dset, batch_size=args.batch_size, shuffle=do_shuffle,
                               num_workers=args.workers, pin_memory=True, sampler=sampler)
+
+    inf_loader = DataLoader(inf_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=True)
+
+    new_slide = True
+
     # loaders prints
     # print("train loader:")
     # print(loader_train)
@@ -902,7 +925,7 @@ def main():
 
             eval_metrics = validate(
                 model,
-                loader_eval,
+                inf_loader,
                 train_loss_fn,
                 # validate_loss_fn,
                 args,
@@ -916,7 +939,7 @@ def main():
 
                 ema_eval_metrics = validate(
                     model_ema.module,
-                    loader_eval,
+                    inf_loader,
                     validate_loss_fn,
                     args,
                     run,
@@ -982,7 +1005,7 @@ def train_one_epoch(
     batch_time_m = utils.AverageMeter()
     data_time_m = utils.AverageMeter()
     losses_m = utils.AverageMeter()
-    auces_per_patch_m = utils.AverageMeter()
+    auces_per_minibatch_m = utils.AverageMeter()
 
 
     model.train()
@@ -1025,7 +1048,7 @@ def train_one_epoch(
 
         if not args.distributed:
             losses_m.update(loss.item(), input.size(0))
-            auces_per_patch_m.update(auc.item(), input.size(0))
+            auces_per_minibatch_m.update(auc.item(), input.size(0))
 
         optimizer.zero_grad()
         if loss_scaler is not None:
@@ -1108,7 +1131,7 @@ def train_one_epoch(
 
     if hasattr(optimizer, 'sync_lookahead'):
         optimizer.sync_lookahead()
-    run.log({"auc_train": auces_per_patch_m.avg})
+    run.log({"auc_train": auces_per_minibatch_m.avg})
     return OrderedDict([('loss', losses_m.avg)])
 
 
@@ -1124,25 +1147,56 @@ def validate(
 ):
     batch_time_m = utils.AverageMeter()
     losses_m = utils.AverageMeter()
-    auces_per_patch_m = utils.AverageMeter()
+    auces_per_patch_m = 0
+    auces_per_minibatch_m = utils.AverageMeter()
+    auces_per_slide_m = utils.AverageMeter()
+
+
     top1_m = utils.AverageMeter()
     top5_m = utils.AverageMeter()
 
     model.eval()
 
+    new_slide = True
+    slide_num = 0
+    N_classes = 2
+    all_targets = []
+    all_targets_slide_level = []
+    all_outputs = []
+    all_outputs_slide_level = []
+
     end = time.time()
-    last_idx = len(loader) - 1
+    # last_idx = len(loader) - 1
     with torch.no_grad():
         # for batch_idx, (input, target) in enumerate(loader):
         for batch_idx, minibatch in enumerate(loader):
             input = minibatch['Data']
             target = minibatch['Target']
+            last_batch = MiniBatch_Dict['Is Last Batch']
+            slide_file = MiniBatch_Dict['Slide Filename']
+            slide_dataset = MiniBatch_Dict['Slide DataSet']
+            patch_locs = MiniBatch_Dict['Patch Loc']
             # f_names = minibatch['File Names']
             # slide_names_batch = [os.path.basename(f_name) for f_name in f_names]
             # slide_names.extend(slide_names_batch)
+            print ("batch_idx", batch_idx)
+            print ("target", target)
+            print("slide_num", slide_num)
+
+            if new_slide:
+                n_tiles = loader.dataset.num_tiles[slide_num]
+
+                all_outputs_slide_level = [np.zeros((n_tiles, N_classes))]
+                all_targets_slide_level = []
+                slide_batch_num = 0
+                new_slide = False
+
+            input = input.squeeze(0)
 
             input = input.to(device)
             target = target.to(device)
+
+            # Old
             last_batch = batch_idx == last_idx
             batch_time_m.update(time.time() - end)
 
@@ -1174,8 +1228,8 @@ def validate(
 
             loss = loss_fn(output, target)
             acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
-            roc_auc = roc_auc_score(target.cpu().detach(), output.cpu().detach()[:, 1])
-            auc = roc_auc if roc_auc.size == 1 else roc_auc[0]
+            roc_auc_per_minibatch = roc_auc_score(target.cpu().detach(), output.cpu().detach()[:, 1])
+            auc_per_minibatch = roc_auc_per_minibatch if roc_auc_per_minibatch.size == 1 else roc_auc_per_minibatch[0]
 
             if args.distributed:
                 reduced_loss = utils.reduce_tensor(loss.data, args.world_size)
@@ -1187,13 +1241,37 @@ def validate(
             if device.type == 'cuda':
                 torch.cuda.synchronize()
             losses_m.update(reduced_loss.item(), input.size(0))
-            auces_per_patch_m.update(auc.item(), input.size(0))
+            auces_per_minibatch_m.update(auc_per_minibatch.item(), input.size(0))
+
             top1_m.update(acc1.item(), output.size(0))
             top5_m.update(acc5.item(), output.size(0))
 
+            all_outputs_slide_level += output.cpu().detach().numpy()
+            all_targets_slide_level += target.cpu().numpy()[0][0]
+
+            slide_batch_num += 1
+
             batch_time_m.update(time.time() - end)
             end = time.time()
+
             if utils.is_primary(args) and (last_batch or batch_idx % args.log_interval == 0):
+                # addition for auc per slide calculation
+                # all_targets.append(target.cpu().numpy()[0][0])
+                all_targets += all_targets_slide_level
+                all_outputs += all_outputs_slide_level
+
+                #original line
+                # predicted = current_slide_tile_scores[model_ind].mean(0).argmax()
+           
+                # if N_classes == 2:
+                #     # patch_scores[slide_num, model_ind, :n_tiles] = all_outputs_slide_level[model_ind][:, 1]
+                #     # all_scores[slide_num, model_ind] = all_outputs_slide_level[model_ind][:, 1].mean()
+                #     if target == 1 and predicted == 1:
+                #         correct_pos[model_ind] += 1
+                #     elif target == 0 and predicted == 0:
+                #         correct_neg[model_ind] += 1
+
+                #Old
                 log_name = 'Test' + log_suffix
                 _logger.info(
                     '{0}: [{1:>4d}/{2}]  '
@@ -1207,18 +1285,31 @@ def validate(
                         top1=top1_m,
                         top5=top5_m)
                 )
-            # ROC
-            run.log({"roc_eval": wandb.plot.roc_curve(target.cpu().detach(), output.cpu().detach())})
-            # Precision-Recall
-            run.log({"pr_eval": wandb.plot.pr_curve(target.cpu().detach(), output.cpu().detach())})
-            # Confusion Matrices
-            roc_auc_eval = roc_auc_score(target.cpu().detach(), output.cpu().detach()[:, 1])
-            run.log({"old_auc_eval": roc_auc_eval if roc_auc_eval.size == 1 else roc_auc_eval[0]})
+                roc_auc_per_slide = roc_auc_score(all_targets_slide_level.cpu().detach(), all_outputs_slide_level.cpu().detach()[:, 1])
+                auc_per_slide = roc_auc_per_slide if roc_auc_per_slide.size == 1 else roc_auc_per_slide[0]
+
+                auces_per_slide_m.update(auc_per_slide.item(), input.size(0))
+
+                slide_num += 1
+            # # ROC
+            # run.log({"roc_eval": wandb.plot.roc_curve(target.cpu().detach(), output.cpu().detach())})
+            # # Precision-Recall
+            # run.log({"pr_eval": wandb.plot.pr_curve(target.cpu().detach(), output.cpu().detach())})
+            # # Confusion Matrices
+            # roc_auc_eval = roc_auc_score(target.cpu().detach(), output.cpu().detach()[:, 1])
+            # run.log({"old_auc_eval": roc_auc_eval if roc_auc_eval.size == 1 else roc_auc_eval[0]})
+
+
+    roc_auc_per_patch = roc_auc_score(all_targets.cpu().detach(), all_output.cpu().detach()[:, 1])
+    auc_per_patch = roc_auc_per_patch if roc_auc_per_patch.size == 1 else roc_auc_per_patch[0]
 
     metrics = OrderedDict([('loss', losses_m.avg), ('top1', top1_m.avg), ('top5', top5_m.avg)])
-    run.log({"auc_eval": auces_per_patch_m.avg})
+    run.log({"auc_eval_per_minibatch": auces_per_minibatch_m.avg})
+    run.log({"auc_eval_per_batch": auc_per_patch})
+    run.log({"auc_eval_per_slide": auces_per_slide_m.avg})
+    
     return metrics
-
-
+    
+    
 if __name__ == '__main__':
     main()
