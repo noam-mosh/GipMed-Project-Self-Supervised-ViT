@@ -385,7 +385,7 @@ parser.add_argument('-baldat', '--balanced_dataset', dest='balanced_dataset', ac
 parser.add_argument('--RAM_saver', action='store_true', help='use only a quarter of the slides + reshuffle every 100 epochs')
 parser.add_argument('-tl', '--transfer_learning', default='', type=str, help='use model trained on another experiment')
 parser.add_argument('-nt', '--num_tiles', type=int, default=100, help='Number of tiles per slide')
-parser.add_argument('-tpi', '--tiles_per_iter', type=int, default=50, help='Number of tiles per batch')
+parser.add_argument('-tpi', '--tiles_per_iter', type=int, default=100, help='Number of tiles per batch')
 
 # args.folds = list(map(int, args.folds[0]))
 # End GipMed
@@ -1036,6 +1036,7 @@ def train_one_epoch(
 
         with amp_autocast():
             output = model(input)
+            output = torch.nn.functional.softmax(output, dim=1)
 
             # print("target shape:" + str(target.shape))
             # print("target:" + str(target))
@@ -1148,8 +1149,8 @@ def validate(
     batch_time_m = utils.AverageMeter()
     losses_m = utils.AverageMeter()
     auces_per_patch_m = 0
-    auces_per_minibatch_m = utils.AverageMeter()
-    auces_per_slide_m = utils.AverageMeter()
+    # auces_per_minibatch_m = utils.AverageMeter()
+    auces_per_slide_m = 0
 
 
     top1_m = utils.AverageMeter()
@@ -1160,10 +1161,12 @@ def validate(
     new_slide = True
     slide_num = 0
     N_classes = 2
-    all_targets = []
-    all_targets_slide_level = []
-    all_outputs = []
-    all_outputs_slide_level = []
+    all_targets = None
+    all_targets_slide_level = None
+
+    all_outputs = None
+    all_outputs_slide_level = None
+
 
     end = time.time()
     # last_idx = len(loader) - 1
@@ -1171,11 +1174,11 @@ def validate(
         # for batch_idx, (input, target) in enumerate(loader):
         for batch_idx, minibatch in enumerate(loader):
             input = minibatch['Data']
-            target = minibatch['Target']
-            last_batch = MiniBatch_Dict['Is Last Batch']
-            slide_file = MiniBatch_Dict['Slide Filename']
-            slide_dataset = MiniBatch_Dict['Slide DataSet']
-            patch_locs = MiniBatch_Dict['Patch Loc']
+            target = minibatch['Label']
+            last_batch = minibatch['Is Last Batch']
+            slide_file = minibatch['Slide Filename']
+            slide_dataset = minibatch['Slide DataSet']
+            patch_locs = minibatch['Patch Loc']
             # f_names = minibatch['File Names']
             # slide_names_batch = [os.path.basename(f_name) for f_name in f_names]
             # slide_names.extend(slide_names_batch)
@@ -1185,23 +1188,26 @@ def validate(
 
             if new_slide:
                 n_tiles = loader.dataset.num_tiles[slide_num]
-
-                all_outputs_slide_level = [np.zeros((n_tiles, N_classes))]
-                all_targets_slide_level = []
+                temp_outputs_slide_level = 0
+                temp_targets_slide_level = None
                 slide_batch_num = 0
                 new_slide = False
+
+            
 
             input = input.squeeze(0)
 
             input = input.to(device)
+            if target.item() == 1:
+                target = torch.ones(input.shape[0], 1, dtype=torch.int64)
+            else:
+                target = torch.zeros(input.shape[0], 1, dtype=torch.int64)
             target = target.to(device)
 
             # Old
-            last_batch = batch_idx == last_idx
             batch_time_m.update(time.time() - end)
 
             # for (input, target) in zip(inputs, targets):
-            last_batch = batch_idx == last_idx
             if not args.prefetcher:
                 input = input.to(device)
                 target = target.to(device)
@@ -1212,6 +1218,7 @@ def validate(
                 output = model(input)
             if isinstance(output, (tuple, list)):
                 output = output[0]
+            output = torch.nn.functional.softmax(output, dim=1)
 
             # augmentation reduction
             reduce_factor = args.tta
@@ -1226,10 +1233,11 @@ def validate(
             # print("target:" + str(target))
             # print("outpus:" + str(output))
 
+
             loss = loss_fn(output, target)
             acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
-            roc_auc_per_minibatch = roc_auc_score(target.cpu().detach(), output.cpu().detach()[:, 1])
-            auc_per_minibatch = roc_auc_per_minibatch if roc_auc_per_minibatch.size == 1 else roc_auc_per_minibatch[0]
+            # roc_auc_per_minibatch = roc_auc_score(target.cpu().detach(), output.cpu().detach()[:, 1])
+            # auc_per_minibatch = roc_auc_per_minibatch if roc_auc_per_minibatch.size == 1 else roc_auc_per_minibatch[0]
 
             if args.distributed:
                 reduced_loss = utils.reduce_tensor(loss.data, args.world_size)
@@ -1241,13 +1249,19 @@ def validate(
             if device.type == 'cuda':
                 torch.cuda.synchronize()
             losses_m.update(reduced_loss.item(), input.size(0))
-            auces_per_minibatch_m.update(auc_per_minibatch.item(), input.size(0))
+
+            # auces_per_minibatch_m.update(auc_per_minibatch.item(), input.size(0))
 
             top1_m.update(acc1.item(), output.size(0))
             top5_m.update(acc5.item(), output.size(0))
-
-            all_outputs_slide_level += output.cpu().detach().numpy()
-            all_targets_slide_level += target.cpu().numpy()[0][0]
+            if temp_outputs_slide_level == 0:
+                temp_outputs_slide_level = output.cpu().detach().numpy()
+            else:
+                temp_outputs_slide_level += output.cpu().detach().numpy()
+            if temp_targets_slide_level == None:
+                temp_targets_slide_level = target.cpu().detach().numpy()
+            else:
+                temp_targets_slide_level += target.cpu().detach().numpy()
 
             slide_batch_num += 1
 
@@ -1257,8 +1271,23 @@ def validate(
             if utils.is_primary(args) and (last_batch or batch_idx % args.log_interval == 0):
                 # addition for auc per slide calculation
                 # all_targets.append(target.cpu().numpy()[0][0])
-                all_targets += all_targets_slide_level
-                all_outputs += all_outputs_slide_level
+                if all_targets == None:
+                    all_targets = temp_targets_slide_level
+                else:
+                    all_targets += temp_targets_slide_level
+                if all_outputs == None:
+                    all_outputs = temp_outputs_slide_level
+                else:
+                    all_outputs += temp_outputs_slide_level
+                if all_targets_slide_level == None:
+                    all_targets_slide_level = [temp_targets_slide_level[0]]
+                else:
+                    all_targets_slide_level += [temp_targets_slide_level[0]]
+                if all_outputs_slide_level == None:
+                    all_outputs_slide_level = temp_outputs_slide_level.mean(0)
+                else:
+                    all_outputs_slide_level += temp_outputs_slide_level.mean(0)
+                
 
                 #original line
                 # predicted = current_slide_tile_scores[model_ind].mean(0).argmax()
@@ -1274,21 +1303,18 @@ def validate(
                 #Old
                 log_name = 'Test' + log_suffix
                 _logger.info(
-                    '{0}: [{1:>4d}/{2}]  '
+                    '{0}: [{1:>4d}]  '
                     'Time: {batch_time.val:.3f} ({batch_time.avg:.3f})  '
                     'Loss: {loss.val:>7.4f} ({loss.avg:>6.4f})  '
                     'Acc@1: {top1.val:>7.4f} ({top1.avg:>7.4f})  '
                     'Acc@5: {top5.val:>7.4f} ({top5.avg:>7.4f})'.format(
-                        log_name, batch_idx, last_idx,
+                        log_name, batch_idx,
                         batch_time=batch_time_m,
                         loss=losses_m,
                         top1=top1_m,
                         top5=top5_m)
                 )
-                roc_auc_per_slide = roc_auc_score(all_targets_slide_level.cpu().detach(), all_outputs_slide_level.cpu().detach()[:, 1])
-                auc_per_slide = roc_auc_per_slide if roc_auc_per_slide.size == 1 else roc_auc_per_slide[0]
 
-                auces_per_slide_m.update(auc_per_slide.item(), input.size(0))
 
                 slide_num += 1
             # # ROC
@@ -1299,14 +1325,16 @@ def validate(
             # roc_auc_eval = roc_auc_score(target.cpu().detach(), output.cpu().detach()[:, 1])
             # run.log({"old_auc_eval": roc_auc_eval if roc_auc_eval.size == 1 else roc_auc_eval[0]})
 
-
-    roc_auc_per_patch = roc_auc_score(all_targets.cpu().detach(), all_output.cpu().detach()[:, 1])
+    roc_auc_per_slide = roc_auc_score(all_targets_slide_level, all_outputs_slide_level[:, 1])
+    auc_per_slide = roc_auc_per_slide if roc_auc_per_slide.size == 1 else roc_auc_per_slide[0]
+    
+    roc_auc_per_patch = roc_auc_score(all_targets.cpu().detach(), all_outputs.cpu().detach()[:, 1])
     auc_per_patch = roc_auc_per_patch if roc_auc_per_patch.size == 1 else roc_auc_per_patch[0]
 
     metrics = OrderedDict([('loss', losses_m.avg), ('top1', top1_m.avg), ('top5', top5_m.avg)])
-    run.log({"auc_eval_per_minibatch": auces_per_minibatch_m.avg})
+    # run.log({"auc_eval_per_minibatch": auces_per_minibatch_m.avg})
     run.log({"auc_eval_per_batch": auc_per_patch})
-    run.log({"auc_eval_per_slide": auces_per_slide_m.avg})
+    run.log({"auc_eval_per_slide": auc_per_slide})
     
     return metrics
     
