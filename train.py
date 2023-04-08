@@ -385,7 +385,7 @@ parser.add_argument('-baldat', '--balanced_dataset', dest='balanced_dataset', ac
 parser.add_argument('--RAM_saver', action='store_true', help='use only a quarter of the slides + reshuffle every 100 epochs')
 parser.add_argument('-tl', '--transfer_learning', default='', type=str, help='use model trained on another experiment')
 parser.add_argument('-nt', '--num_tiles', type=int, default=100, help='Number of tiles per slide')
-parser.add_argument('-tpi', '--tiles_per_iter', type=int, default=100, help='Number of tiles per batch')
+parser.add_argument('-tpi', '--tiles_per_iter', type=int, default=50, help='Number of tiles per batch')
 
 # args.folds = list(map(int, args.folds[0]))
 # End GipMed
@@ -1161,11 +1161,14 @@ def validate(
     new_slide = True
     slide_num = 0
     N_classes = 2
-    all_targets = None
-    all_targets_slide_level = None
+    
+    all_outputs = np.zeros((1,2))
+    all_targets = np.zeros((1,1))
 
-    all_outputs = None
-    all_outputs_slide_level = None
+    all_outputs_slide_level = np.zeros((1,2))
+    all_targets_slide_level = np.zeros((1,1))
+
+
 
 
     end = time.time()
@@ -1188,8 +1191,8 @@ def validate(
 
             if new_slide:
                 n_tiles = loader.dataset.num_tiles[slide_num]
-                temp_outputs_slide_level = 0
-                temp_targets_slide_level = None
+                temp_outputs_slide_level = np.zeros((1,2))
+                temp_targets_slide_level = np.zeros((1,1))
                 slide_batch_num = 0
                 new_slide = False
 
@@ -1254,14 +1257,9 @@ def validate(
 
             top1_m.update(acc1.item(), output.size(0))
             top5_m.update(acc5.item(), output.size(0))
-            if temp_outputs_slide_level == 0:
-                temp_outputs_slide_level = output.cpu().detach().numpy()
-            else:
-                temp_outputs_slide_level += output.cpu().detach().numpy()
-            if temp_targets_slide_level == None:
-                temp_targets_slide_level = target.cpu().detach().numpy()
-            else:
-                temp_targets_slide_level += target.cpu().detach().numpy()
+
+            temp_outputs_slide_level = np.concatenate((temp_outputs_slide_level,output.cpu().detach().numpy()), axis=0)
+            temp_targets_slide_level = np.concatenate((temp_targets_slide_level,target.cpu().detach().numpy()), axis=0)
 
             slide_batch_num += 1
 
@@ -1271,23 +1269,13 @@ def validate(
             if utils.is_primary(args) and (last_batch or batch_idx % args.log_interval == 0):
                 # addition for auc per slide calculation
                 # all_targets.append(target.cpu().numpy()[0][0])
-                if all_targets == None:
-                    all_targets = temp_targets_slide_level
-                else:
-                    all_targets += temp_targets_slide_level
-                if all_outputs == None:
-                    all_outputs = temp_outputs_slide_level
-                else:
-                    all_outputs += temp_outputs_slide_level
-                if all_targets_slide_level == None:
-                    all_targets_slide_level = [temp_targets_slide_level[0]]
-                else:
-                    all_targets_slide_level += [temp_targets_slide_level[0]]
-                if all_outputs_slide_level == None:
-                    all_outputs_slide_level = temp_outputs_slide_level.mean(0)
-                else:
-                    all_outputs_slide_level += temp_outputs_slide_level.mean(0)
-                
+                temp_outputs_slide_level = temp_outputs_slide_level[1:]
+                temp_targets_slide_level = temp_targets_slide_level[1:]
+                all_outputs = np.concatenate((all_outputs,temp_outputs_slide_level), axis=0)
+                all_targets = np.concatenate((all_targets,temp_targets_slide_level), axis=0)
+                print(temp_targets_slide_level.shape, temp_outputs_slide_level.shape, temp_targets_slide_level, temp_outputs_slide_level)
+                all_outputs_slide_level = np.concatenate((all_outputs_slide_level, np.reshape(temp_outputs_slide_level.mean(0), (1, 2))), axis=0)
+                all_targets_slide_level = np.concatenate((all_targets_slide_level, np.reshape(temp_targets_slide_level[0],(1,1))), axis=0)
 
                 #original line
                 # predicted = current_slide_tile_scores[model_ind].mean(0).argmax()
@@ -1317,6 +1305,7 @@ def validate(
 
 
                 slide_num += 1
+                new_slide = True
             # # ROC
             # run.log({"roc_eval": wandb.plot.roc_curve(target.cpu().detach(), output.cpu().detach())})
             # # Precision-Recall
@@ -1324,6 +1313,12 @@ def validate(
             # # Confusion Matrices
             # roc_auc_eval = roc_auc_score(target.cpu().detach(), output.cpu().detach()[:, 1])
             # run.log({"old_auc_eval": roc_auc_eval if roc_auc_eval.size == 1 else roc_auc_eval[0]})
+
+    all_targets = all_targets[1:]
+    all_targets_slide_level = all_targets_slide_level[1:]
+
+    all_outputs = all_outputs[1:]
+    all_outputs_slide_level = all_outputs_slide_level[1:]
 
     roc_auc_per_slide = roc_auc_score(all_targets_slide_level, all_outputs_slide_level[:, 1])
     auc_per_slide = roc_auc_per_slide if roc_auc_per_slide.size == 1 else roc_auc_per_slide[0]
