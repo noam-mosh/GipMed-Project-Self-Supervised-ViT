@@ -727,7 +727,7 @@ class Infer_Dataset(WSI_Master_Dataset):
                       self.desired_magnification,
                       self.tiles_per_iter,
                       self.__len__()))
-
+        
     def __len__(self):
         return int(np.ceil(np.array(self.num_tiles) / self.tiles_per_iter).sum())
 
@@ -812,7 +812,10 @@ class Infer_Dataset(WSI_Master_Dataset):
                 'Slide DataSet': self.slide_dataset[self.slide_num],
                 'Patch Loc': locs,
                 }
-
+    
+    def reset_counter(self):
+        self.slide_num = -1
+        
 
 class Features_MILdataset(Dataset):
     def __init__(self,

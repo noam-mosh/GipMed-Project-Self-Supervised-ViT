@@ -385,7 +385,7 @@ parser.add_argument('-baldat', '--balanced_dataset', dest='balanced_dataset', ac
 parser.add_argument('--RAM_saver', action='store_true', help='use only a quarter of the slides + reshuffle every 100 epochs')
 parser.add_argument('-tl', '--transfer_learning', default='', type=str, help='use model trained on another experiment')
 parser.add_argument('-nt', '--num_tiles', type=int, default=100, help='Number of tiles per slide')
-parser.add_argument('-tpi', '--tiles_per_iter', type=int, default=50, help='Number of tiles per batch')
+parser.add_argument('-tpi', '--tiles_per_iter', type=int, default=100, help='Number of tiles per batch')
 
 # args.folds = list(map(int, args.folds[0]))
 # End GipMed
@@ -922,7 +922,7 @@ def main():
                 if utils.is_primary(args):
                     _logger.info("Distributing BatchNorm running means and vars")
                 utils.distribute_bn(model, args.world_size, args.dist_bn == 'reduce')
-
+            inf_dset.reset_counter()
             eval_metrics = validate(
                 model,
                 inf_loader,
@@ -1196,8 +1196,6 @@ def validate(
                 slide_batch_num = 0
                 new_slide = False
 
-            
-
             input = input.squeeze(0)
 
             input = input.to(device)
@@ -1273,7 +1271,6 @@ def validate(
                 temp_targets_slide_level = temp_targets_slide_level[1:]
                 all_outputs = np.concatenate((all_outputs,temp_outputs_slide_level), axis=0)
                 all_targets = np.concatenate((all_targets,temp_targets_slide_level), axis=0)
-                print(temp_targets_slide_level.shape, temp_outputs_slide_level.shape, temp_targets_slide_level, temp_outputs_slide_level)
                 all_outputs_slide_level = np.concatenate((all_outputs_slide_level, np.reshape(temp_outputs_slide_level.mean(0), (1, 2))), axis=0)
                 all_targets_slide_level = np.concatenate((all_targets_slide_level, np.reshape(temp_targets_slide_level[0],(1,1))), axis=0)
 
@@ -1323,7 +1320,7 @@ def validate(
     roc_auc_per_slide = roc_auc_score(all_targets_slide_level, all_outputs_slide_level[:, 1])
     auc_per_slide = roc_auc_per_slide if roc_auc_per_slide.size == 1 else roc_auc_per_slide[0]
     
-    roc_auc_per_patch = roc_auc_score(all_targets.cpu().detach(), all_outputs.cpu().detach()[:, 1])
+    roc_auc_per_patch = roc_auc_score(all_targets, all_outputs[:, 1])
     auc_per_patch = roc_auc_per_patch if roc_auc_per_patch.size == 1 else roc_auc_per_patch[0]
 
     metrics = OrderedDict([('loss', losses_m.avg), ('top1', top1_m.avg), ('top5', top5_m.avg)])
