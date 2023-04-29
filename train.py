@@ -384,12 +384,14 @@ parser.add_argument('--slide_per_block', action='store_true', help='for carmel, 
 parser.add_argument('-baldat', '--balanced_dataset', dest='balanced_dataset', action='store_true', help='take same # of positive and negative patients from each dataset')
 parser.add_argument('--RAM_saver', action='store_true', help='use only a quarter of the slides + reshuffle every 100 epochs')
 parser.add_argument('-tl', '--transfer_learning', default='', type=str, help='use model trained on another experiment')
-parser.add_argument('-nt', '--num_tiles', type=int, default=100, help='Number of tiles per slide')
-parser.add_argument('-tpi', '--tiles_per_iter', type=int, default=100, help='Number of tiles per batch')
+parser.add_argument('-nt', '--num_tiles', type=int, default=500, help='Number of tiles per slide')
+parser.add_argument('-tpi', '--tiles_per_iter', type=int, default=500, help='Number of tiles per batch')
 
 # args.folds = list(map(int, args.folds[0]))
 # End GipMed
 parser.add_argument('--supervised', action='store_true', help='work only with the test fold as 80/20 partition')
+parser.add_argument('-ef','--extract_features', action='store_true', help='feature extractor')
+
 
 def _parse_args():
     # Do we have a config file to parse?
@@ -523,6 +525,13 @@ def main():
     if args.split_bn:
         assert num_aug_splits > 1 or args.resplit
         model = convert_splitbn_model(model, max(num_aug_splits, 2))
+    
+    # Tom Start
+    if args.extract_features:
+        print(model)
+        model.head = nn.Identity()
+        print(model)
+    # Tom End
 
     # move model to GPU, enable channels last layout if set
     model.to(device=device)
@@ -670,22 +679,22 @@ def main():
                                              balanced_dataset=args.balanced_dataset,
                                              RAM_saver=args.RAM_saver
                                              )
-
-    test_dset = datasets.WSI_REGdataset(DataSet=args.dataset,
-                                        tile_size=TILE_SIZE,
-                                        target_kind=args.target,
-                                        test_fold=args.test_fold,
-                                        train=False,
-                                        print_timing=False,
-                                        transform_type='none',
-                                        n_tiles=args.n_patches_test,
-                                        get_images=args.images,
-                                        desired_slide_magnification=args.mag,
-                                        DX=args.dx,
-                                        loan=args.loan,
-                                        er_eq_pr=args.er_eq_pr,
-                                        RAM_saver=args.RAM_saver
-                                        )
+    if not args.extract_features:
+        test_dset = datasets.WSI_REGdataset(DataSet=args.dataset,
+                                            tile_size=TILE_SIZE,
+                                            target_kind=args.target,
+                                            test_fold=args.test_fold,
+                                            train=False,
+                                            print_timing=False,
+                                            transform_type='none',
+                                            n_tiles=args.n_patches_test,
+                                            get_images=args.images,
+                                            desired_slide_magnification=args.mag,
+                                            DX=args.dx,
+                                            loan=args.loan,
+                                            er_eq_pr=args.er_eq_pr,
+                                            RAM_saver=args.RAM_saver
+                                            )
 
     inf_dset = datasets.Infer_Dataset(DataSet=args.dataset,
                                       tile_size=TILE_SIZE,
@@ -720,9 +729,7 @@ def main():
         weights[np.array(labels == 'Negative')] = 1 / n_neg
         do_shuffle = False  # the sampler shuffles
         sampler = torch.utils.data.sampler.WeightedRandomSampler(weights=weights.squeeze(), num_samples=len(train_dset))
-
-    loader_train = DataLoader(train_dset, batch_size=args.batch_size, shuffle=do_shuffle,
-                              num_workers=args.workers, pin_memory=True, sampler=sampler)
+    loader_train = DataLoader(train_dset, batch_size=args.batch_size, shuffle=do_shuffle, num_workers=args.workers, pin_memory=True, sampler=sampler)
 
     inf_loader = DataLoader(inf_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=True)
 
@@ -738,7 +745,8 @@ def main():
     if args.distributed and ('tfds' in args.dataset or 'wds' in args.dataset):
         # FIXME reduces validation padding issues when using TFDS, WDS w/ workers and distributed training
         eval_workers = min(2, args.workers)
-    loader_eval = DataLoader(test_dset, batch_size=args.batch_size * 2, shuffle=False,
+    if not args.extract_features:
+        loader_eval = DataLoader(test_dset, batch_size=args.batch_size * 2, shuffle=False,
                              num_workers=args.workers, pin_memory=True)
 
     # setup mixup / cutmix
@@ -895,28 +903,27 @@ def main():
 
     try:
         for epoch in range(start_epoch, num_epochs):
-            if hasattr(train_dset, 'set_epoch'):
-                train_dset.set_epoch(epoch)
-            elif args.distributed and hasattr(loader_train.sampler, 'set_epoch'):
-                loader_train.sampler.set_epoch(epoch)
-
-            train_metrics = train_one_epoch(
-                epoch,
-                model,
-                loader_train,
-                optimizer,
-                train_loss_fn,
-                args,
-                run,
-                lr_scheduler=lr_scheduler,
-                saver=saver,
-                output_dir=output_dir,
-                amp_autocast=amp_autocast,
-                loss_scaler=loss_scaler,
-                model_ema=model_ema,
-                mixup_fn=mixup_fn
-
-)
+            if not args.extract_features:
+                if hasattr(train_dset, 'set_epoch'):
+                    train_dset.set_epoch(epoch)
+                elif args.distributed and hasattr(loader_train.sampler, 'set_epoch'):
+                    loader_train.sampler.set_epoch(epoch)
+                train_metrics = train_one_epoch(
+                    epoch,
+                    model,
+                    loader_train,
+                    optimizer,
+                    train_loss_fn,
+                    args,
+                    run,
+                    lr_scheduler=lr_scheduler,
+                    saver=saver,
+                    output_dir=output_dir,
+                    amp_autocast=amp_autocast,
+                    loss_scaler=loss_scaler,
+                    model_ema=model_ema,
+                    mixup_fn=mixup_fn
+                    )
 
             if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
                 if utils.is_primary(args):
@@ -1180,6 +1187,7 @@ def validate(
             target = minibatch['Label']
             last_batch = minibatch['Is Last Batch']
             slide_file = minibatch['Slide Filename']
+            print(slide_file, slide_file[0])
             slide_dataset = minibatch['Slide DataSet']
             patch_locs = minibatch['Patch Loc']
             # f_names = minibatch['File Names']
@@ -1191,7 +1199,7 @@ def validate(
 
             if new_slide:
                 n_tiles = loader.dataset.num_tiles[slide_num]
-                temp_outputs_slide_level = np.zeros((1,2))
+                temp_outputs_slide_level = np.zeros((1,384))
                 temp_targets_slide_level = np.zeros((1,1))
                 slide_batch_num = 0
                 new_slide = False
@@ -1267,38 +1275,41 @@ def validate(
             if utils.is_primary(args) and (last_batch or batch_idx % args.log_interval == 0):
                 # addition for auc per slide calculation
                 # all_targets.append(target.cpu().numpy()[0][0])
-                temp_outputs_slide_level = temp_outputs_slide_level[1:]
-                temp_targets_slide_level = temp_targets_slide_level[1:]
-                all_outputs = np.concatenate((all_outputs,temp_outputs_slide_level), axis=0)
-                all_targets = np.concatenate((all_targets,temp_targets_slide_level), axis=0)
-                all_outputs_slide_level = np.concatenate((all_outputs_slide_level, np.reshape(temp_outputs_slide_level.mean(0), (1, 2))), axis=0)
-                all_targets_slide_level = np.concatenate((all_targets_slide_level, np.reshape(temp_targets_slide_level[0],(1,1))), axis=0)
+                if args.extract_features:
+                    torch.save(temp_outputs_slide_level, ("./TCGA_500/"+slide_file[0]+'_features.pt'))
+                else:
+                    temp_outputs_slide_level = temp_outputs_slide_level[1:]
+                    temp_targets_slide_level = temp_targets_slide_level[1:]
+                    all_outputs = np.concatenate((all_outputs,temp_outputs_slide_level), axis=0)
+                    all_targets = np.concatenate((all_targets,temp_targets_slide_level), axis=0)
+                    all_outputs_slide_level = np.concatenate((all_outputs_slide_level, np.reshape(temp_outputs_slide_level.mean(0), (1, 2))), axis=0)
+                    all_targets_slide_level = np.concatenate((all_targets_slide_level, np.reshape(temp_targets_slide_level[0],(1,1))), axis=0)
 
-                #original line
-                # predicted = current_slide_tile_scores[model_ind].mean(0).argmax()
-           
-                # if N_classes == 2:
-                #     # patch_scores[slide_num, model_ind, :n_tiles] = all_outputs_slide_level[model_ind][:, 1]
-                #     # all_scores[slide_num, model_ind] = all_outputs_slide_level[model_ind][:, 1].mean()
-                #     if target == 1 and predicted == 1:
-                #         correct_pos[model_ind] += 1
-                #     elif target == 0 and predicted == 0:
-                #         correct_neg[model_ind] += 1
+                    #original line
+                    # predicted = current_slide_tile_scores[model_ind].mean(0).argmax()
+            
+                    # if N_classes == 2:
+                    #     # patch_scores[slide_num, model_ind, :n_tiles] = all_outputs_slide_level[model_ind][:, 1]
+                    #     # all_scores[slide_num, model_ind] = all_outputs_slide_level[model_ind][:, 1].mean()
+                    #     if target == 1 and predicted == 1:
+                    #         correct_pos[model_ind] += 1
+                    #     elif target == 0 and predicted == 0:
+                    #         correct_neg[model_ind] += 1
 
-                #Old
-                log_name = 'Test' + log_suffix
-                _logger.info(
-                    '{0}: [{1:>4d}]  '
-                    'Time: {batch_time.val:.3f} ({batch_time.avg:.3f})  '
-                    'Loss: {loss.val:>7.4f} ({loss.avg:>6.4f})  '
-                    'Acc@1: {top1.val:>7.4f} ({top1.avg:>7.4f})  '
-                    'Acc@5: {top5.val:>7.4f} ({top5.avg:>7.4f})'.format(
-                        log_name, batch_idx,
-                        batch_time=batch_time_m,
-                        loss=losses_m,
-                        top1=top1_m,
-                        top5=top5_m)
-                )
+                    #Old
+                    log_name = 'Test' + log_suffix
+                    _logger.info(
+                        '{0}: [{1:>4d}]  '
+                        'Time: {batch_time.val:.3f} ({batch_time.avg:.3f})  '
+                        'Loss: {loss.val:>7.4f} ({loss.avg:>6.4f})  '
+                        'Acc@1: {top1.val:>7.4f} ({top1.avg:>7.4f})  '
+                        'Acc@5: {top5.val:>7.4f} ({top5.avg:>7.4f})'.format(
+                            log_name, batch_idx,
+                            batch_time=batch_time_m,
+                            loss=losses_m,
+                            top1=top1_m,
+                            top5=top5_m)
+                    )
 
 
                 slide_num += 1
@@ -1310,23 +1321,23 @@ def validate(
             # # Confusion Matrices
             # roc_auc_eval = roc_auc_score(target.cpu().detach(), output.cpu().detach()[:, 1])
             # run.log({"old_auc_eval": roc_auc_eval if roc_auc_eval.size == 1 else roc_auc_eval[0]})
+    if not args.extract_features:
+        all_targets = all_targets[1:]
+        all_targets_slide_level = all_targets_slide_level[1:]
 
-    all_targets = all_targets[1:]
-    all_targets_slide_level = all_targets_slide_level[1:]
+        all_outputs = all_outputs[1:]
+        all_outputs_slide_level = all_outputs_slide_level[1:]
 
-    all_outputs = all_outputs[1:]
-    all_outputs_slide_level = all_outputs_slide_level[1:]
+        roc_auc_per_slide = roc_auc_score(all_targets_slide_level, all_outputs_slide_level[:, 1])
+        auc_per_slide = roc_auc_per_slide if roc_auc_per_slide.size == 1 else roc_auc_per_slide[0]
+        
+        roc_auc_per_patch = roc_auc_score(all_targets, all_outputs[:, 1])
+        auc_per_patch = roc_auc_per_patch if roc_auc_per_patch.size == 1 else roc_auc_per_patch[0]
 
-    roc_auc_per_slide = roc_auc_score(all_targets_slide_level, all_outputs_slide_level[:, 1])
-    auc_per_slide = roc_auc_per_slide if roc_auc_per_slide.size == 1 else roc_auc_per_slide[0]
-    
-    roc_auc_per_patch = roc_auc_score(all_targets, all_outputs[:, 1])
-    auc_per_patch = roc_auc_per_patch if roc_auc_per_patch.size == 1 else roc_auc_per_patch[0]
-
-    metrics = OrderedDict([('loss', losses_m.avg), ('top1', top1_m.avg), ('top5', top5_m.avg)])
-    # run.log({"auc_eval_per_minibatch": auces_per_minibatch_m.avg})
-    run.log({"auc_eval_per_batch": auc_per_patch})
-    run.log({"auc_eval_per_slide": auc_per_slide})
+        metrics = OrderedDict([('loss', losses_m.avg), ('top1', top1_m.avg), ('top5', top5_m.avg)])
+        # run.log({"auc_eval_per_minibatch": auces_per_minibatch_m.avg})
+        run.log({"auc_eval_per_batch": auc_per_patch})
+        run.log({"auc_eval_per_slide": auc_per_slide})
     
     return metrics
     
