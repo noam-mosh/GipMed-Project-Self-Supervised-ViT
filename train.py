@@ -1199,7 +1199,10 @@ def validate(
 
             if new_slide:
                 n_tiles = loader.dataset.num_tiles[slide_num]
-                temp_outputs_slide_level = np.zeros((1,384))
+                if args.extract_features:
+                    temp_outputs_slide_level = np.zeros((1,384))
+                else:
+                    temp_outputs_slide_level = np.zeros((1,2))
                 temp_targets_slide_level = np.zeros((1,1))
                 slide_batch_num = 0
                 new_slide = False
